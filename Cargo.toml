@@ -2,10 +2,13 @@
 name = "locate-path"
 version = "0.1.0"
 edition = "2021"
-description = "resolve first existing path from candidate list"
+description = "Find the first existing path from an ordered list of candidates."
 license = "MIT"
 repository = "https://github.com/hey-jj/locate-path"
+documentation = "https://docs.rs/locate-path"
 readme = "README.md"
+keywords = ["path", "filesystem", "locate", "exists", "find"]
+categories = ["filesystem"]
 
 [dependencies]
 
