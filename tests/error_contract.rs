@@ -103,3 +103,14 @@ fn file_url_bare_root_yields_root() {
         Cwd::Path(std::path::PathBuf::from("/"))
     );
 }
+
+#[test]
+fn file_url_drive_letter_stays_a_posix_path() {
+    // A Windows drive-letter URL is out of scope. It decodes to the POSIX path
+    // /C:/x with a leading slash, not the Windows path C:\x. The test locks the
+    // documented behavior so the limit stays visible.
+    assert_eq!(
+        Cwd::from_file_url("file:///C:/x").unwrap(),
+        Cwd::Path(std::path::PathBuf::from("/C:/x"))
+    );
+}
