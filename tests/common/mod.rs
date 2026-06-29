@@ -78,3 +78,30 @@ pub fn add_dangling(fixture: &Fixture) {
     use std::os::unix::fs::symlink;
     symlink("nope", fixture.fixture_dir().join("dangling")).expect("link dangling");
 }
+
+/// Create a named pipe (FIFO) at `name` inside the fixture directory.
+///
+/// A FIFO exists on disk but is neither a regular file nor a directory. It
+/// stands in for the family of special files (sockets, devices) that the type
+/// filter must never match. Returns `true` if the FIFO was created. Unix only,
+/// and only on platforms where `mkfifo` is available.
+#[cfg(unix)]
+pub fn add_fifo(fixture: &Fixture, name: &str) -> bool {
+    use std::ffi::CString;
+
+    let path = fixture.fixture_dir().join(name);
+    let c_path = match CString::new(path.as_os_str().as_encoded_bytes()) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    // SAFETY: `c_path` is a valid NUL-terminated C string for the duration of
+    // the call. `mkfifo` only reads it and returns a status code.
+    let rc = unsafe { libc_mkfifo(c_path.as_ptr(), 0o644) };
+    rc == 0
+}
+
+#[cfg(unix)]
+extern "C" {
+    #[link_name = "mkfifo"]
+    fn libc_mkfifo(path: *const std::os::raw::c_char, mode: u32) -> std::os::raw::c_int;
+}

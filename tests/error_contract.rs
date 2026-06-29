@@ -5,7 +5,7 @@
 //! the match logic. The string parser carries the rule instead, and these tests
 //! lock the message byte for byte.
 
-use locate_path::{AsyncOptions, ConcurrencyError, Options, PathType};
+use locate_path::{AsyncOptions, ConcurrencyError, Cwd, FileUrlError, Options, PathType};
 
 #[test]
 fn rejects_unknown_type_string() {
@@ -53,6 +53,37 @@ fn concurrency_zero_is_rejected() {
         ConcurrencyError.to_string(),
         "Expected `concurrency` to be a number from 1 and up"
     );
+}
+
+#[test]
+fn file_url_rejects_non_file_scheme() {
+    // A working directory URL must use the file scheme. An http URL is rejected
+    // rather than treated as a path.
+    let err = Cwd::from_file_url("http://example.com/path").unwrap_err();
+    assert_eq!(err, FileUrlError::Scheme);
+}
+
+#[test]
+fn file_url_rejects_foreign_host() {
+    // file://host/share carries a host other than an empty host or localhost.
+    let err = Cwd::from_file_url("file://otherhost/share").unwrap_err();
+    assert_eq!(err, FileUrlError::Authority);
+}
+
+#[test]
+fn file_url_accepts_localhost_and_empty_host() {
+    let empty = Cwd::from_file_url("file:///tmp/x").unwrap();
+    assert_eq!(empty, Cwd::Path(std::path::PathBuf::from("/tmp/x")));
+    let localhost = Cwd::from_file_url("file://localhost/tmp/x").unwrap();
+    assert_eq!(localhost, Cwd::Path(std::path::PathBuf::from("/tmp/x")));
+}
+
+#[test]
+fn file_url_rejects_bad_percent_escape() {
+    // A truncated percent escape is invalid. The decoder reports it rather than
+    // silently dropping bytes.
+    let err = Cwd::from_file_url("file:///tmp/%2").unwrap_err();
+    assert_eq!(err, FileUrlError::Encoding);
 }
 
 #[test]

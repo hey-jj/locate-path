@@ -142,6 +142,63 @@ fn broken_symlink_never_matches() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn special_file_never_matches_any_type() {
+    // A FIFO exists but is neither a file nor a directory. None of the three
+    // type filters may match it, including `both`, which is file-or-directory
+    // and excludes everything else.
+    let fixture = common::build();
+    if !common::add_fifo(&fixture, "pipe") {
+        // mkfifo can fail on a filesystem that does not support FIFOs. Skip
+        // rather than fail in that case.
+        return;
+    }
+    let base = fixture.fixture_dir();
+
+    for ty in [PathType::File, PathType::Directory, PathType::Both] {
+        let follow = Options::default().cwd(base.clone()).r#type(ty);
+        assert_eq!(
+            locate_path_sync(["pipe"], &follow),
+            None,
+            "follow links, type {ty:?}"
+        );
+        assert_eq!(locate_path(["pipe"], &follow), None, "async, type {ty:?}");
+
+        let no_follow = Options::default()
+            .cwd(base.clone())
+            .allow_symlinks(false)
+            .r#type(ty);
+        assert_eq!(
+            locate_path_sync(["pipe"], &no_follow),
+            None,
+            "no follow, type {ty:?}"
+        );
+    }
+
+    // A later regular file still matches once the FIFO is skipped.
+    let opts = Options::default().cwd(base).r#type(PathType::Both);
+    assert_eq!(
+        locate_path_sync(["pipe", "unicorn"], &opts).as_deref(),
+        Some(Path::new("unicorn"))
+    );
+}
+
+#[test]
+fn unicode_candidate_returned_verbatim() {
+    // The result is the candidate as supplied. A non-ASCII name must round-trip
+    // byte for byte, not normalized or re-encoded.
+    let fixture = common::build();
+    let name = "café-☃.txt";
+    std::fs::write(fixture.root.join(name), b"").unwrap();
+    let opts = Options::default().cwd(fixture.root.clone());
+    assert_eq!(
+        locate_path_sync(["missing", name], &opts).as_deref(),
+        Some(Path::new(name))
+    );
+    assert_eq!(locate_path([name], &opts).as_deref(), Some(Path::new(name)));
+}
+
 #[test]
 fn file_url_cwd_with_percent_encoding() {
     // A working directory passed as a file:// URL is decoded into a path. Build
