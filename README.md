@@ -88,8 +88,13 @@ assert!("rainbows".parse::<PathType>().is_err());
 ### `Cwd`
 
 The working directory source. Defaults to the process directory. Accepts a
-string, a `Path`, or a `PathBuf` through `Into`. A `file://` URL goes through
-`Cwd::from_file_url`, which percent-decodes the path.
+string, a `Path`, or a `PathBuf` through `Into`.
+
+A `file://` URL goes through `Cwd::from_file_url`, which percent-decodes the
+path. The supported subset is a `file://` URL with an empty or `localhost` host,
+a POSIX path, and UTF-8 content. A bare `file://` or `file:///` yields the root
+`/`. Windows drive letters and non-UTF-8 paths are not supported. An encoded
+path separator (`%2F` or `%5C`) is rejected rather than split into two segments.
 
 ## Behavior notes
 

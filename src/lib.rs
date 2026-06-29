@@ -116,6 +116,11 @@ impl TryFrom<&str> for PathType {
 /// Candidate paths are resolved against this directory before the existence
 /// check. A relative directory is itself resolved against the process working
 /// directory, so resolution always produces an absolute path.
+///
+/// Build a `Cwd` through [`Default`] for the process directory, the `From`
+/// impls for an explicit path (string, `Path`, or `PathBuf`), or
+/// [`Cwd::from_file_url`] for a `file://` URL. The [`Cwd::Path`] variant is part
+/// of the public API so callers can match on it to inspect a custom directory.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Cwd {
     /// Use the process working directory. This is the default.
@@ -152,9 +157,31 @@ impl From<String> for Cwd {
 impl Cwd {
     /// Build a working directory from a `file://` URL.
     ///
-    /// The path part is percent-decoded into a filesystem path. A scheme other
-    /// than `file` is rejected with [`FileUrlError::Scheme`]. This lets a caller
-    /// pass a working directory as a `file://` URL instead of a plain path.
+    /// Supported subset:
+    ///
+    /// - An empty host (`file:///path`) or a `localhost` host. Both yield the
+    ///   path after the host. A bare `file://` or `file:///` yields the root
+    ///   `/`.
+    /// - A POSIX absolute path. The path part is percent-decoded into a
+    ///   filesystem path.
+    /// - UTF-8 content. The decoded bytes must form valid UTF-8.
+    ///
+    /// Not supported:
+    ///
+    /// - Windows drive letters. `file:///C:/x` decodes to the path `/C:/x`, not
+    ///   `C:\x`.
+    /// - Non-UTF-8 paths. Decoded bytes that are not valid UTF-8 are rejected
+    ///   with [`FileUrlError::Encoding`], even when they name a real path on a
+    ///   Unix filesystem.
+    ///
+    /// Errors:
+    ///
+    /// - A scheme other than `file` returns [`FileUrlError::Scheme`].
+    /// - A host other than empty or `localhost` returns
+    ///   [`FileUrlError::Authority`].
+    /// - A bad percent escape, or an encoded path separator (`%2F` or `%5C`),
+    ///   returns [`FileUrlError::Encoding`]. An encoded separator is rejected
+    ///   rather than split into two path segments.
     ///
     /// # Examples
     ///
@@ -167,18 +194,15 @@ impl Cwd {
     /// ```
     pub fn from_file_url(url: &str) -> Result<Self, FileUrlError> {
         let rest = url.strip_prefix("file://").ok_or(FileUrlError::Scheme)?;
-        // Drop an empty authority (`file:///path`) or a `localhost` authority.
-        let path_part = match rest.find('/') {
-            Some(slash) => {
-                let authority = &rest[..slash];
-                if authority.is_empty() || authority.eq_ignore_ascii_case("localhost") {
-                    &rest[slash..]
-                } else {
-                    return Err(FileUrlError::Authority);
-                }
-            }
-            None => return Err(FileUrlError::Path),
+        // Split the authority from the path at the first `/`. With no `/`, the
+        // whole remainder is the authority and the path is the bare root.
+        let (authority, path_part) = match rest.find('/') {
+            Some(slash) => (&rest[..slash], &rest[slash..]),
+            None => (rest, "/"),
         };
+        if !(authority.is_empty() || authority.eq_ignore_ascii_case("localhost")) {
+            return Err(FileUrlError::Authority);
+        }
         let decoded = percent_decode(path_part)?;
         Ok(Cwd::Path(PathBuf::from(decoded)))
     }
@@ -191,9 +215,8 @@ pub enum FileUrlError {
     Scheme,
     /// The URL carries a host other than an empty host or `localhost`.
     Authority,
-    /// The URL has no path part.
-    Path,
-    /// The URL contains an invalid percent escape.
+    /// The URL contains an invalid percent escape, an encoded path separator,
+    /// or non-UTF-8 content.
     Encoding,
 }
 
@@ -202,7 +225,6 @@ impl fmt::Display for FileUrlError {
         match self {
             FileUrlError::Scheme => write!(f, "URL scheme must be \"file\""),
             FileUrlError::Authority => write!(f, "file URL host must be empty or \"localhost\""),
-            FileUrlError::Path => write!(f, "file URL must have a path"),
             FileUrlError::Encoding => write!(f, "invalid percent encoding in file URL"),
         }
     }
@@ -211,6 +233,10 @@ impl fmt::Display for FileUrlError {
 impl std::error::Error for FileUrlError {}
 
 /// Percent-decode a URL path segment into raw bytes, then into a UTF-8 string.
+///
+/// An encoded path separator (`%2F` for `/`, `%5C` for `\`) is rejected. The
+/// conversion does not turn an encoded separator into a real one, since that
+/// would split one path segment into two and locate a different path.
 fn percent_decode(input: &str) -> Result<String, FileUrlError> {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -221,6 +247,9 @@ fn percent_decode(input: &str) -> Result<String, FileUrlError> {
                 let hi = bytes.get(i + 1).copied().ok_or(FileUrlError::Encoding)?;
                 let lo = bytes.get(i + 2).copied().ok_or(FileUrlError::Encoding)?;
                 let byte = (hex_value(hi)? << 4) | hex_value(lo)?;
+                if byte == b'/' || byte == b'\\' {
+                    return Err(FileUrlError::Encoding);
+                }
                 out.push(byte);
                 i += 3;
             }
