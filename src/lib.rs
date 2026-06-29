@@ -272,41 +272,35 @@ fn hex_value(byte: u8) -> Result<u8, FileUrlError> {
     }
 }
 
-/// Settings shared by both entry points.
+/// Settings for a search.
 ///
-/// Build with [`Options::default`] and the field setters, or construct the
-/// struct directly. Defaults: working directory is the process directory, type
-/// is [`PathType::File`], and symbolic links are followed.
+/// `Options` is a builder. Start from [`Options::default`] and chain the
+/// setters. Each setter takes `self` and returns `self`, so calls compose:
+///
+/// ```
+/// use locate_path::{Options, PathType};
+///
+/// let opts = Options::default()
+///     .cwd("src")
+///     .kind(PathType::Directory)
+///     .allow_symlinks(false);
+/// ```
+///
+/// Defaults: the working directory is the process directory, the type filter is
+/// [`PathType::File`], and symbolic links are followed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
-    /// Directory that candidate paths resolve against.
-    pub cwd: Cwd,
-    /// The kind of path that counts as a match.
-    pub r#type: PathType,
-    /// Follow symbolic links when `true`. Report on the link itself when
-    /// `false`.
-    pub allow_symlinks: bool,
-    /// Cap on how many existence checks run at once. `None` means no cap.
-    ///
-    /// This crate scans candidates serially, so the value does not change the
-    /// result. It is kept for API parity. A value of `Some(0)` is rejected by
-    /// [`AsyncOptions::concurrency_or_error`].
-    pub concurrency: Option<usize>,
-    /// Return the earliest matching candidate by input order when `true`.
-    ///
-    /// This crate always scans in order, so the result is deterministic and the
-    /// flag does not change it. It is kept for API parity.
-    pub preserve_order: bool,
+    cwd: Cwd,
+    kind: PathType,
+    allow_symlinks: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Options {
             cwd: Cwd::default(),
-            r#type: PathType::default(),
+            kind: PathType::default(),
             allow_symlinks: true,
-            concurrency: None,
-            preserve_order: true,
         }
     }
 }
@@ -322,8 +316,8 @@ impl Options {
 
     /// Set the type filter.
     #[must_use]
-    pub fn r#type(mut self, r#type: PathType) -> Self {
-        self.r#type = r#type;
+    pub fn kind(mut self, kind: PathType) -> Self {
+        self.kind = kind;
         self
     }
 
@@ -333,56 +327,7 @@ impl Options {
         self.allow_symlinks = allow;
         self
     }
-
-    /// Set the concurrency cap.
-    #[must_use]
-    pub fn concurrency(mut self, concurrency: Option<usize>) -> Self {
-        self.concurrency = concurrency;
-        self
-    }
-
-    /// Set whether input order is preserved.
-    #[must_use]
-    pub fn preserve_order(mut self, preserve_order: bool) -> Self {
-        self.preserve_order = preserve_order;
-        self
-    }
 }
-
-/// Alias for the option set that carries the async-style knobs.
-///
-/// The crate has one [`Options`] struct carrying every field. This alias names
-/// the set that includes [`concurrency`](Options::concurrency) and
-/// [`preserve_order`](Options::preserve_order), which shape an asynchronous
-/// scan and have no effect on the serial scan here.
-pub type AsyncOptions = Options;
-
-impl AsyncOptions {
-    /// Validate [`concurrency`](Options::concurrency).
-    ///
-    /// A positive integer or `None` (unbounded) is accepted. `Some(0)` is
-    /// rejected. The error names the rule the value broke.
-    pub fn concurrency_or_error(&self) -> Result<Option<usize>, ConcurrencyError> {
-        match self.concurrency {
-            Some(0) => Err(ConcurrencyError),
-            other => Ok(other),
-        }
-    }
-}
-
-/// Error returned when `concurrency` is not a number from 1 and up.
-///
-/// The message is `Expected `concurrency` to be a number from 1 and up`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConcurrencyError;
-
-impl fmt::Display for ConcurrencyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Expected `concurrency` to be a number from 1 and up")
-    }
-}
-
-impl std::error::Error for ConcurrencyError {}
 
 /// Fetch metadata for `path`, following symlinks when `allow_symlinks` is set.
 ///
@@ -398,26 +343,29 @@ fn stat(path: &Path, allow_symlinks: bool) -> Option<fs::Metadata> {
 
 /// Return the first candidate that exists and matches the type filter.
 ///
-/// Candidates are resolved against [`Options::cwd`] and checked in iteration
-/// order. The return value is the first candidate, as supplied, whose resolved
-/// path exists and satisfies [`Options::type`](Options::type). It is `None` when
-/// nothing matches.
+/// Candidates are resolved against the working directory in [`Options`] and
+/// checked in iteration order. The return value is the first candidate, as
+/// supplied, whose resolved path exists and satisfies the type filter. It is
+/// `None` when nothing matches.
 ///
 /// A stat error of any kind, including a missing path or a permission failure,
 /// marks that candidate as a non-match. No filesystem error propagates.
 ///
-/// This is the synchronous core. [`locate_path`] forwards to it.
+/// A relative candidate or a relative working directory needs the process
+/// working directory to resolve. If that directory cannot be read, those
+/// candidates cannot resolve and the function returns `None`. An absolute
+/// working directory and absolute candidates never need it.
 ///
 /// # Examples
 ///
 /// ```
-/// use locate_path::{locate_path_sync, Options, PathType};
+/// use locate_path::{locate_path, Options, PathType};
 ///
-/// let opts = Options::default().r#type(PathType::Directory);
-/// let found = locate_path_sync(["Cargo.toml", "src"], &opts);
+/// let opts = Options::default().kind(PathType::Directory);
+/// let found = locate_path(["Cargo.toml", "src"], &opts);
 /// assert_eq!(found.as_deref(), Some(std::path::Path::new("src")));
 /// ```
-pub fn locate_path_sync<I, P>(paths: I, options: &Options) -> Option<PathBuf>
+pub fn locate_path<I, P>(paths: I, options: &Options) -> Option<PathBuf>
 where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
@@ -426,11 +374,13 @@ where
 
     for candidate in paths {
         let candidate = candidate.as_ref();
-        let resolved = resolve::resolve(&base, candidate);
+        let Some(resolved) = resolve::resolve(base.as_deref(), candidate) else {
+            continue;
+        };
         let Some(metadata) = stat(&resolved, options.allow_symlinks) else {
             continue;
         };
-        if options.r#type.matches(&metadata) {
+        if options.kind.matches(&metadata) {
             return Some(candidate.to_path_buf());
         }
     }
@@ -438,24 +388,23 @@ where
     None
 }
 
-/// Return the first candidate that exists and matches the type filter.
+/// Synonym for [`locate_path`].
 ///
-/// Same contract and result as [`locate_path_sync`]. This name is the entry
-/// point for callers who want the order and concurrency knobs in scope. With
-/// default options the two functions return the same value for the same input.
+/// The crate scans synchronously. This name exists for callers who reach for a
+/// `_sync` suffix. It calls [`locate_path`] and returns the same value.
 ///
 /// # Examples
 ///
 /// ```
-/// use locate_path::{locate_path, Options};
+/// use locate_path::{locate_path_sync, Options};
 ///
-/// let found = locate_path(["does-not-exist", "Cargo.toml"], &Options::default());
+/// let found = locate_path_sync(["does-not-exist", "Cargo.toml"], &Options::default());
 /// assert_eq!(found.as_deref(), Some(std::path::Path::new("Cargo.toml")));
 /// ```
-pub fn locate_path<I, P>(paths: I, options: &Options) -> Option<PathBuf>
+pub fn locate_path_sync<I, P>(paths: I, options: &Options) -> Option<PathBuf>
 where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
 {
-    locate_path_sync(paths, options)
+    locate_path(paths, options)
 }

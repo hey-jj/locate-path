@@ -1,6 +1,6 @@
 //! Edge cases the core matrix does not cover directly: empty input, long miss
-//! prefixes, absolute candidates, lazy iterables, the order and concurrency
-//! knobs, the default working directory, and a broken symlink.
+//! prefixes, absolute candidates, lazy iterables, the default working
+//! directory, and a broken symlink.
 
 mod common;
 
@@ -72,32 +72,6 @@ fn ordered_source_with_single_match_is_deterministic() {
 }
 
 #[test]
-fn preserve_order_false_returns_a_match() {
-    // With a single matching candidate the result stays deterministic whatever
-    // the order flag says.
-    let fixture = common::build();
-    let opts = Options::default()
-        .cwd(fixture.root.clone())
-        .r#type(PathType::Both)
-        .preserve_order(false);
-    let found = locate_path(["missing", "fixture"], &opts);
-    assert_eq!(found.as_deref(), Some(Path::new("fixture")));
-}
-
-#[test]
-fn concurrency_one_does_not_change_result() {
-    let fixture = common::build();
-    let opts = Options::default()
-        .cwd(fixture.root.clone())
-        .concurrency(Some(1));
-    let paths = ["noop.foo", "unicorn.png", "index.js", "test.js"];
-    assert_eq!(
-        locate_path(paths, &opts).as_deref(),
-        Some(Path::new("index.js"))
-    );
-}
-
-#[test]
 fn omitting_cwd_equals_current_dir() {
     // Default cwd reads the process working directory. Passing that directory
     // explicitly must give the same result. Use a temp dir as cwd so the test
@@ -124,7 +98,7 @@ fn broken_symlink_never_matches() {
 
     // Follow links: stat on the target fails, so no match for any type.
     for ty in [PathType::File, PathType::Directory, PathType::Both] {
-        let opts = Options::default().cwd(base.clone()).r#type(ty);
+        let opts = Options::default().cwd(base.clone()).kind(ty);
         assert_eq!(locate_path_sync(["dangling"], &opts), None, "follow {ty:?}");
     }
 
@@ -133,7 +107,7 @@ fn broken_symlink_never_matches() {
         let opts = Options::default()
             .cwd(base.clone())
             .allow_symlinks(false)
-            .r#type(ty);
+            .kind(ty);
         assert_eq!(
             locate_path_sync(["dangling"], &opts),
             None,
@@ -157,7 +131,7 @@ fn special_file_never_matches_any_type() {
     let base = fixture.fixture_dir();
 
     for ty in [PathType::File, PathType::Directory, PathType::Both] {
-        let follow = Options::default().cwd(base.clone()).r#type(ty);
+        let follow = Options::default().cwd(base.clone()).kind(ty);
         assert_eq!(
             locate_path_sync(["pipe"], &follow),
             None,
@@ -168,7 +142,7 @@ fn special_file_never_matches_any_type() {
         let no_follow = Options::default()
             .cwd(base.clone())
             .allow_symlinks(false)
-            .r#type(ty);
+            .kind(ty);
         assert_eq!(
             locate_path_sync(["pipe"], &no_follow),
             None,
@@ -177,7 +151,7 @@ fn special_file_never_matches_any_type() {
     }
 
     // A later regular file still matches once the FIFO is skipped.
-    let opts = Options::default().cwd(base).r#type(PathType::Both);
+    let opts = Options::default().cwd(base).kind(PathType::Both);
     assert_eq!(
         locate_path_sync(["pipe", "unicorn"], &opts).as_deref(),
         Some(Path::new("unicorn"))

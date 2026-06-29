@@ -1,11 +1,11 @@
-//! Error messages for invalid type strings and invalid concurrency.
+//! Error messages for invalid type strings and file URL rejections.
 //!
 //! Three type values must be rejected: `rainbows`, `toString`, and the
 //! numeric-like `1`. The type filter is an enum, so those values cannot reach
 //! the match logic. The string parser carries the rule instead, and these tests
 //! lock the message byte for byte.
 
-use locate_path::{AsyncOptions, ConcurrencyError, Cwd, FileUrlError, Options, PathType};
+use locate_path::{Cwd, FileUrlError, PathType};
 
 #[test]
 fn rejects_unknown_type_string() {
@@ -46,16 +46,6 @@ fn invalid_type_keeps_value() {
 }
 
 #[test]
-fn concurrency_zero_is_rejected() {
-    let options = Options::default().concurrency(Some(0));
-    assert_eq!(options.concurrency_or_error(), Err(ConcurrencyError));
-    assert_eq!(
-        ConcurrencyError.to_string(),
-        "Expected `concurrency` to be a number from 1 and up"
-    );
-}
-
-#[test]
 fn file_url_rejects_non_file_scheme() {
     // A working directory URL must use the file scheme. An http URL is rejected
     // rather than treated as a path.
@@ -87,10 +77,29 @@ fn file_url_rejects_bad_percent_escape() {
 }
 
 #[test]
-fn concurrency_positive_and_none_accepted() {
-    let bounded: AsyncOptions = Options::default().concurrency(Some(4));
-    assert_eq!(bounded.concurrency_or_error(), Ok(Some(4)));
+fn file_url_rejects_encoded_path_separator() {
+    // %2F is an encoded forward slash and %5C an encoded backslash. Decoding
+    // either into a real separator would split one path segment into two and
+    // locate a different path, so both are rejected.
+    assert_eq!(
+        Cwd::from_file_url("file:///a%2Fb").unwrap_err(),
+        FileUrlError::Encoding
+    );
+    assert_eq!(
+        Cwd::from_file_url("file:///a%5Cb").unwrap_err(),
+        FileUrlError::Encoding
+    );
+}
 
-    let unbounded = Options::default().concurrency(None);
-    assert_eq!(unbounded.concurrency_or_error(), Ok(None));
+#[test]
+fn file_url_bare_root_yields_root() {
+    // file:// and file:/// both name the root path.
+    assert_eq!(
+        Cwd::from_file_url("file://").unwrap(),
+        Cwd::Path(std::path::PathBuf::from("/"))
+    );
+    assert_eq!(
+        Cwd::from_file_url("file:///").unwrap(),
+        Cwd::Path(std::path::PathBuf::from("/"))
+    );
 }

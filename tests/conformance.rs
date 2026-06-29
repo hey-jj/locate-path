@@ -21,7 +21,7 @@ enum Base {
 struct Case {
     paths: &'static [&'static str],
     base: Base,
-    r#type: PathType,
+    kind: PathType,
     allow_symlinks: bool,
     expected: Option<&'static str>,
     needs_symlinks: bool,
@@ -32,7 +32,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["noop.foo", "unicorn.png", "index.js", "test.js"],
         base: Base::Root,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: true,
         expected: Some("index.js"),
         needs_symlinks: false,
@@ -41,7 +41,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["nonexistent"],
         base: Base::Root,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: true,
         expected: None,
         needs_symlinks: false,
@@ -50,7 +50,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["noop", "unicorn"],
         base: Base::Fixture,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: true,
         expected: Some("unicorn"),
         needs_symlinks: false,
@@ -59,7 +59,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["noop", "unicorn"],
         base: Base::FixtureUrl,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: true,
         expected: Some("unicorn"),
         needs_symlinks: false,
@@ -68,7 +68,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["index.js"],
         base: Base::Root,
-        r#type: PathType::Directory,
+        kind: PathType::Directory,
         allow_symlinks: true,
         expected: None,
         needs_symlinks: false,
@@ -77,7 +77,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["fixture"],
         base: Base::Root,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: true,
         expected: None,
         needs_symlinks: false,
@@ -86,7 +86,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["fixture"],
         base: Base::Root,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: true,
         expected: None,
         needs_symlinks: false,
@@ -95,7 +95,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["fixture"],
         base: Base::Root,
-        r#type: PathType::Directory,
+        kind: PathType::Directory,
         allow_symlinks: true,
         expected: Some("fixture"),
         needs_symlinks: false,
@@ -104,7 +104,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["index.js"],
         base: Base::Root,
-        r#type: PathType::Both,
+        kind: PathType::Both,
         allow_symlinks: true,
         expected: Some("index.js"),
         needs_symlinks: false,
@@ -113,7 +113,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["fixture"],
         base: Base::Root,
-        r#type: PathType::Both,
+        kind: PathType::Both,
         allow_symlinks: true,
         expected: Some("fixture"),
         needs_symlinks: false,
@@ -122,7 +122,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["fixture", "index.js"],
         base: Base::Root,
-        r#type: PathType::Both,
+        kind: PathType::Both,
         allow_symlinks: true,
         expected: Some("fixture"),
         needs_symlinks: false,
@@ -131,7 +131,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["index.js", "fixture"],
         base: Base::Root,
-        r#type: PathType::Both,
+        kind: PathType::Both,
         allow_symlinks: true,
         expected: Some("index.js"),
         needs_symlinks: false,
@@ -140,7 +140,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["file-link", "unicorn"],
         base: Base::Fixture,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: true,
         expected: Some("file-link"),
         needs_symlinks: true,
@@ -149,7 +149,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["directory-link", "unicorn"],
         base: Base::Fixture,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: true,
         expected: Some("unicorn"),
         needs_symlinks: true,
@@ -158,7 +158,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["directory-link", "unicorn"],
         base: Base::Fixture,
-        r#type: PathType::Directory,
+        kind: PathType::Directory,
         allow_symlinks: true,
         expected: Some("directory-link"),
         needs_symlinks: true,
@@ -167,7 +167,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["file-link", "directory-link"],
         base: Base::Fixture,
-        r#type: PathType::Both,
+        kind: PathType::Both,
         allow_symlinks: true,
         expected: Some("file-link"),
         needs_symlinks: true,
@@ -176,7 +176,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["directory-link", "file-link"],
         base: Base::Fixture,
-        r#type: PathType::Both,
+        kind: PathType::Both,
         allow_symlinks: true,
         expected: Some("directory-link"),
         needs_symlinks: true,
@@ -185,7 +185,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["file-link", "unicorn"],
         base: Base::Fixture,
-        r#type: PathType::File,
+        kind: PathType::File,
         allow_symlinks: false,
         expected: Some("unicorn"),
         needs_symlinks: true,
@@ -194,7 +194,7 @@ const CASES: &[Case] = &[
     Case {
         paths: &["directory-link", "unicorn"],
         base: Base::Fixture,
-        r#type: PathType::Directory,
+        kind: PathType::Directory,
         allow_symlinks: false,
         expected: None,
         needs_symlinks: true,
@@ -212,7 +212,7 @@ fn options_for(fixture: &common::Fixture, case: &Case) -> Options {
     };
     Options::default()
         .cwd(cwd)
-        .r#type(case.r#type)
+        .kind(case.kind)
         .allow_symlinks(case.allow_symlinks)
 }
 
