@@ -32,7 +32,7 @@ use locate_path::{locate_path_sync, Options, PathType};
 
 let opts = Options::default()
     .cwd("src")
-    .r#type(PathType::Directory);
+    .kind(PathType::Directory);
 let found = locate_path_sync(["lib.rs", "."], &opts);
 ```
 
@@ -46,27 +46,28 @@ candidate, owned, exactly as supplied.
 
 ### `locate_path_sync(paths, options) -> Option<PathBuf>`
 
-The synchronous core. Same contract and result as `locate_path`. With default
-options both functions return the same value for the same input.
+Synonym for `locate_path`. The crate scans synchronously, so the `_sync` name
+calls `locate_path` and returns the same value.
 
 ### `Options`
 
-| Field | Type | Default | Meaning |
-|-------|------|---------|---------|
-| `cwd` | `Cwd` | process directory | Directory that candidates resolve against. |
-| `type` | `PathType` | `File` | What counts as a match. |
-| `allow_symlinks` | `bool` | `true` | Follow symlinks when set. Report on the link itself when clear. |
-| `concurrency` | `Option<usize>` | `None` | Kept for parity. Scanning is serial, so it does not change the result. |
-| `preserve_order` | `bool` | `true` | Kept for parity. Scanning is in order, so the result is always deterministic. |
+`Options` is a builder. The setters are the only way to set values. Each takes
+`self` and returns `self`, so calls chain.
 
-Build options with the setter methods, which take `self` and return `self`:
+| Setting | Type | Default | Meaning |
+|---------|------|---------|---------|
+| `cwd` | `Cwd` | process directory | Directory that candidates resolve against. |
+| `kind` | `PathType` | `File` | What counts as a match. |
+| `allow_symlinks` | `bool` | `true` | Follow symlinks when set. Report on the link itself when clear. |
+
+Build options by chaining the setters:
 
 ```rust
 use locate_path::{Options, PathType};
 
 let opts = Options::default()
     .cwd("fixtures")
-    .r#type(PathType::Both)
+    .kind(PathType::Both)
     .allow_symlinks(false);
 ```
 
