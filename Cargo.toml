@@ -8,3 +8,8 @@ repository = "https://github.com/hey-jj/locate-path"
 readme = "README.md"
 
 [dependencies]
+
+[dev-dependencies]
+# Builds an isolated temporary directory tree per test so the suite never
+# touches the working copy and cleans up on its own.
+tempfile = "3"
