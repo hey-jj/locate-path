@@ -51,11 +51,15 @@ pub(crate) fn resolve(base: Option<&Path>, candidate: &Path) -> Option<PathBuf> 
 /// symlinks, which is left to the stat call. A `..` at the root stays at the
 /// root.
 ///
-/// The pass collects a prefix or root once, then a stack of plain segments.
+/// The pass collects any prefix and root once, then a stack of plain segments.
 /// `..` pops a segment in constant time, or is kept when the stack is empty and
 /// there is no root. The `PathBuf` is assembled once at the end, so the whole
 /// pass is linear with no rescans.
+///
+/// A Windows absolute path emits both a `Prefix` (the drive) and a `RootDir`,
+/// so they need separate slots to keep `C:\foo` from collapsing to `\foo`.
 fn normalize(path: &Path) -> PathBuf {
+    let mut prefix: Option<OsString> = None;
     let mut root: Option<OsString> = None;
     let mut rooted = false;
     let mut stack: Vec<OsString> = Vec::new();
@@ -70,7 +74,12 @@ fn normalize(path: &Path) -> PathBuf {
                     stack.push(OsString::from(".."));
                 }
             }
-            Component::RootDir | Component::Prefix(_) => {
+            Component::Prefix(_) => {
+                prefix = Some(component.as_os_str().to_os_string());
+                rooted = true;
+                stack.clear();
+            }
+            Component::RootDir => {
                 root = Some(component.as_os_str().to_os_string());
                 rooted = true;
                 stack.clear();
@@ -80,6 +89,9 @@ fn normalize(path: &Path) -> PathBuf {
     }
 
     let mut out = PathBuf::new();
+    if let Some(prefix) = prefix {
+        out.push(prefix);
+    }
     if let Some(root) = root {
         out.push(root);
     }
@@ -144,6 +156,15 @@ mod tests {
     #[test]
     fn dotdot_at_root_stays_at_root() {
         assert_eq!(normalize(Path::new("/../a")), PathBuf::from("/a"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_keeps_drive_prefix() {
+        assert_eq!(
+            normalize(Path::new(r"C:\foo\..\bar")),
+            PathBuf::from(r"C:\bar")
+        );
     }
 
     #[test]
