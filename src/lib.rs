@@ -193,7 +193,11 @@ impl Cwd {
     /// assert_eq!(cwd, Cwd::Path(PathBuf::from("/tmp/my dir")));
     /// ```
     pub fn from_file_url(url: &str) -> Result<Self, FileUrlError> {
-        let rest = url.strip_prefix("file://").ok_or(FileUrlError::Scheme)?;
+        let scheme = url.as_bytes().get(..7).ok_or(FileUrlError::Scheme)?;
+        if !scheme.eq_ignore_ascii_case(b"file://") {
+            return Err(FileUrlError::Scheme);
+        }
+        let rest = &url[7..];
         // Split the authority from the path at the first `/`. With no `/`, the
         // whole remainder is the authority and the path is the bare root.
         let (authority, path_part) = match rest.find('/') {
@@ -203,6 +207,13 @@ impl Cwd {
         if !(authority.is_empty() || authority.eq_ignore_ascii_case("localhost")) {
             return Err(FileUrlError::Authority);
         }
+        let path_part = match path_part
+            .bytes()
+            .position(|byte| byte == b'?' || byte == b'#')
+        {
+            Some(end) => &path_part[..end],
+            None => path_part,
+        };
         let decoded = percent_decode(path_part)?;
         Ok(Cwd::Path(PathBuf::from(decoded)))
     }
@@ -407,4 +418,37 @@ where
     P: AsRef<Path>,
 {
     locate_path(paths, options)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cwd, PathBuf};
+
+    #[test]
+    fn from_file_url_accepts_case_insensitive_scheme() {
+        assert_eq!(
+            Cwd::from_file_url("FILE:///tmp/x").unwrap(),
+            Cwd::Path(PathBuf::from("/tmp/x"))
+        );
+        assert_eq!(
+            Cwd::from_file_url("File:///tmp/x").unwrap(),
+            Cwd::Path(PathBuf::from("/tmp/x"))
+        );
+    }
+
+    #[test]
+    fn from_file_url_ignores_query_and_fragment() {
+        assert_eq!(
+            Cwd::from_file_url("file:///tmp/a?b").unwrap(),
+            Cwd::Path(PathBuf::from("/tmp/a"))
+        );
+        assert_eq!(
+            Cwd::from_file_url("file:///tmp/a#b").unwrap(),
+            Cwd::Path(PathBuf::from("/tmp/a"))
+        );
+        assert_eq!(
+            Cwd::from_file_url("file:///tmp/a%3Fb%23c").unwrap(),
+            Cwd::Path(PathBuf::from("/tmp/a?b#c"))
+        );
+    }
 }
