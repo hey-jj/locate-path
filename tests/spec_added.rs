@@ -1,6 +1,6 @@
 //! Edge cases the core matrix does not cover directly: empty input, long miss
-//! prefixes, absolute candidates, lazy iterables, the default working
-//! directory, and a broken symlink.
+//! prefixes, absolute candidates, lazy iterables, explicit working directories,
+//! and a broken symlink.
 
 mod common;
 
@@ -72,10 +72,8 @@ fn ordered_source_with_single_match_is_deterministic() {
 }
 
 #[test]
-fn omitting_cwd_equals_current_dir() {
-    // Default cwd reads the process working directory. Passing that directory
-    // explicitly must give the same result. Use a temp dir as cwd so the test
-    // does not depend on where it runs.
+fn explicit_cwd_selects_search_directory() {
+    // An explicit cwd selects the directory used to resolve candidates.
     let fixture = common::build();
     let explicit = Options::default().cwd(Cwd::Path(fixture.root.clone()));
 
@@ -84,7 +82,7 @@ fn omitting_cwd_equals_current_dir() {
     let with_explicit = locate_path_sync([candidate], &explicit);
     assert_eq!(with_explicit.as_deref(), Some(Path::new("index.js")));
 
-    // The same call against a directory with no such file is None.
+    // The same candidate against a directory with no such file is None.
     let elsewhere = Options::default().cwd(Cwd::Path(PathBuf::from("/")));
     assert_eq!(locate_path_sync([candidate], &elsewhere), None);
 }
