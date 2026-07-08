@@ -1,6 +1,6 @@
 [package]
 name = "locate-path"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Find the first existing path from an ordered list of candidates."
 license = "MIT"
